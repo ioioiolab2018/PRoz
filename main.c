@@ -24,11 +24,11 @@ void addTugboats(pthread_mutex_t *mutex, int *queue, int *tugboats_counter, int 
 
 void removeTugboats(pthread_mutex_t *mutex, int *queue, int *tugboats_counter, int sender, int req_tugboats);
 
-void askForTugboats();
+void askForTugboats(int processes_quantity, int sender, int tugboats, int clock);
 
 void sendConsentForTugboats(int receiver, int clock);
 
-void returnTugboats();
+void returnTugboats(int processes_quantity, int sender, int tugboats, int clock);
 
 void sendMessage(int receiver, int type, int tugboats, int clock);
 
