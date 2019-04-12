@@ -8,9 +8,9 @@ int hi = 3;
 int Li = 7;
 int rank, size;
 int waiting = 0;
-int Lclock = 0;
-int *queue;
+int system_clock = 0;
 int request_time;
+int *queue;
 
 int isBeforeMe(int my_request_time, int his_request_time, int my_rank, int his_rank);
 
@@ -19,6 +19,8 @@ void resetQueue(int *queue, int size);
 void sleepThread(pthread_mutex_t *mutex, pthread_cond_t *cond);
 
 void wakeThread(pthread_mutex_t *mutex, pthread_cond_t *cond);
+
+int drawTugboatsNumber(int tugboats_quantity);
 
 void addTugboats(pthread_mutex_t *mutex, int *queue, int *tugboats_counter, int sender, int req_tugboats);
 
@@ -39,7 +41,7 @@ void *monitor(void *data) {
 
     while (1) {
         MPI_Recv(msg, MSG_SIZE, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        Lclock = max(Lclock, msg[2]) + 1;
+        system_clock = max(system_clock, msg[2]) + 1;
 
         if (msg[0] == REQUEST) {
             queue[status.MPI_SOURCE] = 0;
@@ -48,11 +50,11 @@ void *monitor(void *data) {
             } else if (waiting > 0 && isBeforeMe(request_time, msg[2], rank, status.MPI_SOURCE) > 0) {
                 removeTugboats(&mutexLi, queue, &Li, status.MPI_SOURCE, msg[1]);
             }
-            printf("[REQ] %d dostałem prośbę od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
-            sendConsentForTugboats(status.MPI_SOURCE, Lclock);
+//            printf("[REQ] %d dostałem prośbę od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
+            sendConsentForTugboats(status.MPI_SOURCE, system_clock);
         } else if (msg[0] == ACCEPT) {
             counter += 1;
-            printf("[ACC] %d dostałem zgodę od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
+//            printf("[ACC] %d dostałem zgodę od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
             if (counter == size - 1) {
                 if (Li >= 0) {
                     counter = 0;
@@ -63,7 +65,7 @@ void *monitor(void *data) {
             }
         } else if (msg[0] == RETURN && queue[status.MPI_SOURCE] > 0) {
             addTugboats(&mutexLi, queue, &Li, status.MPI_SOURCE, msg[1]);
-            printf("[RET] %d dostałem zwrot od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
+//            printf("[RET] %d dostałem zwrot od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
             if (waiting == 2 && Li >= 0) {
                 counter = 0;
                 wakeThread(&mutex, &cond);
@@ -82,6 +84,9 @@ int main(int argc, char **argv) {
     queue = malloc(sizeof(int) * size);
     resetQueue(queue, size);
 
+    hi = drawTugboatsNumber(Li);
+    printf("[TUG] %d potrzebuję %d holowników\n", rank, hi);
+
     errno = pthread_create(&id, NULL, monitor, (void *) (1));
     if (errno) {
         perror("pthread_create");
@@ -94,7 +99,7 @@ int main(int argc, char **argv) {
 
         pthread_mutex_lock(&mutexLi);
         Li -= hi;
-        request_time = Lclock;
+        request_time = system_clock;
         waiting = 1;
         pthread_mutex_unlock(&mutexLi);
 
@@ -110,9 +115,10 @@ int main(int argc, char **argv) {
 
         addTugboats(&mutexLi, queue, &Li, rank, hi);
         printf("[ZWR] %d zwalniam holowniki\n", rank);
-        returnTugboats(size, rank, hi, Lclock);
+        returnTugboats(size, rank, hi, system_clock);
     }
     MPI_Finalize();
+    exit(0);
 }
 
 int isBeforeMe(int my_request_time, int his_request_time, int my_rank, int his_rank) {
@@ -138,6 +144,11 @@ void wakeThread(pthread_mutex_t *mutex, pthread_cond_t *cond) {
     pthread_mutex_lock(&*mutex);
     pthread_cond_signal(&*cond);
     pthread_mutex_unlock(&*mutex);
+}
+
+int drawTugboatsNumber(int tugboats_quantity) {
+    srand(time(NULL) + rank);
+    return rand() % (tugboats_quantity / 2) + (tugboats_quantity / 3);
 }
 
 void addTugboats(pthread_mutex_t *mutex, int *queue, int *tugboats_counter, int sender, int req_tugboats) {
