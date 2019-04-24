@@ -41,6 +41,7 @@ void *monitor(void *data) {
 
     while (1) {
         MPI_Recv(msg, MSG_SIZE, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        pthread_mutex_lock(&mutexLi);
         system_clock = max(system_clock, msg[2]) + 1;
 
         if (msg[0] == REQUEST) {
@@ -57,6 +58,7 @@ void *monitor(void *data) {
 //            printf("[ACC] %d dostałem zgodę od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
             if (counter == size - 1) {
                 if (Li >= 0) {
+                    printf("[RET] %d dostałem zgody: { Li: %d, counter: %d }\n", rank, Li, counter);
                     counter = 0;
                     wakeThread(&mutex, &cond);
                 } else {
@@ -67,10 +69,12 @@ void *monitor(void *data) {
             addTugboats(&mutexLi, queue, &Li, status.MPI_SOURCE, msg[1]);
 //            printf("[RET] %d dostałem zwrot od %d: { Li: %d, counter: %d }\n", rank, status.MPI_SOURCE, Li, counter);
             if (waiting == 2 && Li >= 0) {
+                printf("[RET] %d dostałem zgody: { Li: %d, counter: %d }\n", rank, Li, counter);
                 counter = 0;
                 wakeThread(&mutex, &cond);
             }
         }
+        pthread_mutex_unlock(&mutexLi);
     }
 }
 
@@ -152,17 +156,17 @@ int drawTugboatsNumber(int tugboats_quantity) {
 }
 
 void addTugboats(pthread_mutex_t *mutex, int *queue, int *tugboats_counter, int sender, int req_tugboats) {
-    pthread_mutex_lock(&*mutex);
+//    pthread_mutex_lock(&*mutex);
     *tugboats_counter += req_tugboats;
     queue[sender] = 0;
-    pthread_mutex_unlock(&*mutex);
+//    pthread_mutex_unlock(&*mutex);
 }
 
 void removeTugboats(pthread_mutex_t *mutex, int *queue, int *tugboats_counter, int sender, int req_tugboats) {
-    pthread_mutex_lock(&*mutex);
+//    pthread_mutex_lock(&*mutex);
     *tugboats_counter -= req_tugboats;
     queue[sender] = 1;
-    pthread_mutex_unlock(&*mutex);
+//    pthread_mutex_unlock(&*mutex);
 }
 
 void askForTugboats(int processes_quantity, int sender, int tugboats, int clock) {
@@ -173,8 +177,32 @@ void askForTugboats(int processes_quantity, int sender, int tugboats, int clock)
     }
 }
 
+struct Message {
+    int *msg;
+    int receiver;
+};
+
+void *sendAsyn(void *data) {
+    struct Message *mes = (struct Message *) data;
+    MPI_Send(mes->msg, MSG_SIZE, MPI_INT, mes->receiver, MSG_HELLO, MPI_COMM_WORLD);
+}
+
 void sendConsentForTugboats(int receiver, int clock) {
-    sendMessage(receiver, ACCEPT, 0, clock);
+    pthread_t id;
+    struct Message *message;
+    message = malloc(sizeof(struct Message));
+    int *msg = malloc(3 * sizeof(int));
+    msg[0] = ACCEPT;
+    msg[1] = 0;
+    msg[2] = clock;
+    message->msg = msg;
+    message->receiver = receiver;
+
+    errno = pthread_create(&id, NULL, sendAsyn, (void *) message);
+    if (errno) {
+        perror("pthread_create");
+        exit(0);
+    }
 }
 
 void returnTugboats(int processes_quantity, int sender, int tugboats, int clock) {
